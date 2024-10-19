@@ -23,10 +23,10 @@ procedure Simulation is
 
    -- each Producer is assigned a Product that it produces
    Product_Name: constant array (Producer_Type) of String(1 .. 8)
-     := ("Pizza   ", "Pasta   ", "Salad   ", "Sandwich", "Burger  ");
+     := ("Pizza   ", "Napoj   ", "Salatka ", "Kanapka ", "Burger  ");
    -- Assembly is a collection of products
-   Assembly_Name: constant array (Assembly_Type) of String(1 .. 9)
-     := ("Breakfast", "Lunch    ", "Dinner   ");
+   Assembly_Name: constant array (Assembly_Type) of String(1 .. 10)
+     := ("Klasyczny ", "Vegge     ", "Dzieciecy ");
 
    ----TASK DECLARATIONS----
 
@@ -48,7 +48,7 @@ procedure Simulation is
    -- Buffer receives dishes from producers and serves orders to consumers
    task type Buffer is
       -- Accept a dish into the kitchen (if there's enough space)
-      entry Take(Product: in Producer_Type; Number: in Integer);
+      entry Take(Product: in Producer_Type; Number: in Integer; Product_Demand: out Integer);
       -- Serve an order (if enough dishes are available)
       entry Deliver(Assembly: in Assembly_Type; Number: out Integer);
       entry Quarrel_In_Storage;
@@ -72,34 +72,42 @@ procedure Simulation is
      Product_Number: Integer;
      Production: Integer;
      Random_Time: Duration;
+     Demand: Integer;
   begin
    accept Start(Product: in Producer_Type; Production_Time: in Integer) do
       Random_Production.Reset(G);
       Product_Number := 1;
       Producer_Type_Number := Product;
       Production := Production_Time;
+      Demand:= 100;
    end Start;
 
    Put_Line(ESC & "[93m" & "P: Szef kuchni rozpoczal przygotowywanie " & Product_Name(Producer_Type_Number) & ESC & "[0m");
 
    loop
       Random_Time := Duration(Random_Production.Random(G));
+
       delay Random_Time;
       Put_Line(ESC & "[93m" & "P: Przygotowano danie: " & Product_Name(Producer_Type_Number)
                & " nr "  & Integer'Image(Product_Number) & ESC & "[0m");
-
-      -- Proba dostarczenia dania do kuchni
+      
+      -- Proba dostarczenia dania na wydawke
       loop
             select
                -- Sprobuj dostarczyc danie do bufora (kuchni)
-               B.Take(Producer_Type_Number, Product_Number);
+               B.Take(Producer_Type_Number, Product_Number, Demand);
                Product_Number := Product_Number + 1;
-               Put_Line(ESC & "[93m" & "P: Dostarczono do kuchni: " & Product_Name(Producer_Type_Number) & ESC & "[0m");
+               Put_Line(ESC & "[93m" & "P: Dostarczono na wydawke: " & Product_Name(Producer_Type_Number) & ESC & "[0m");
+               if Demand <=0 then
+                  Put_Line(ESC & "[93m" & "P: Male zapotrzebowanie na: " & Product_Name(Producer_Type_Number)
+                           & ". Kucharz moze odpoczac" & ESC & "[0m");
+                  delay 3.0;
+               end if;
                exit;
             else
                -- Jesli kuchnia nie moze przyjac dania, odczekaj chwile i sprobuj ponownie
-               Put_Line(ESC & "[93m" & "P: Kuchnia zajeta, ponawiam probe dostarczenia: " & Product_Name(Producer_Type_Number) & ESC & "[0m");
-               delay 3.0;
+               Put_Line(ESC & "[93m" & "P: Wydawka zajeta, ponawiam probe dostarczenia: " & Product_Name(Producer_Type_Number) & ESC & "[0m");
+               delay 2.0;
             end select;
       end loop;
    end loop;
@@ -186,10 +194,11 @@ task body Buffer is
    type Storage_type is array (Producer_Type) of Integer;
    Storage: Storage_type := (0, 0, 0, 0, 0);
    Assembly_Content: array(Assembly_Type, Producer_Type) of Integer
-     := ((2, 1, 2, 0, 2),
-         (1, 2, 0, 1, 0),
-         (3, 2, 2, 0, 1));
+     := ((1, 2, 1, 0, 2),
+         (0, 1, 3, 1, 0),
+         (1, 1, 0, 1, 1));
    Max_Assembly_Content: array(Producer_Type) of Integer;
+   Max_Content: array(Producer_Type) of Integer;
    Assembly_Number: array(Assembly_Type) of Integer := (1, 1, 1);
    In_Storage: Integer := 0;
    
@@ -213,6 +222,7 @@ task body Buffer is
                Max_Assembly_Content(W) := Assembly_Content(Z, W);
             end if;
          end loop;
+         Max_Content(W) := Max_Assembly_Content(W)*2+2;
       end loop;
    end Setup_Variables;
 
@@ -238,10 +248,10 @@ task body Buffer is
    procedure Storage_Contents is
    begin
       for W in Producer_Type loop
-         Put_Line("| Zawartosc kuchni: " & Integer'Image(Storage(W)) & " "
+         Put_Line("| Na wydawce: " & Integer'Image(Storage(W)) & " "
                   & Product_Name(W));
       end loop;
-      Put_Line("| Liczba dan w kuchni: " & Integer'Image(In_Storage));
+      Put_Line("| Liczba dan gotowych do wydania: " & Integer'Image(In_Storage));
    end Storage_Contents;
 
    procedure Clear_Excess_Products is
@@ -256,18 +266,18 @@ task body Buffer is
    end Clear_Excess_Products;
 
 begin
-   Put_Line(ESC & "[91m" & "B: Kuchnia gotowa do pracy" & ESC & "[0m");
+   Put_Line(ESC & "[91m" & "B: Wydawka gotowa do pracy" & ESC & "[0m");
    Setup_Variables;
    loop
       select
-         accept Take(Product: in Producer_Type; Number: in Integer) do
+         accept Take(Product: in Producer_Type; Number: in Integer; Product_Demand: out Integer) do
             if Can_Accept(Product) then
                Put_Line(ESC & "[91m" & "B: Przyjeto danie: " & Product_Name(Product) & " nr " &
                           Integer'Image(Number)& ESC & "[0m");
                Storage(Product) := Storage(Product) + 1;
                In_Storage := In_Storage + 1;
             else
-               Put_Line(ESC & "[91m" & "B: Kuchnia pelna, usuwam nadmiar" & ESC & "[0m");
+               Put_Line(ESC & "[91m" & "B: Wydawka pelna, usuwam nieswieze dania" & ESC & "[0m");
                Clear_Excess_Products;  -- Ograniczamy dania do 5 sztuk
                -- Sprobuj ponownie przyjac danie po wyczyszczeniu kuchni
                if Can_Accept(Product) then
@@ -280,6 +290,7 @@ begin
                              Integer'Image(Number) & ESC & "[0m");
                end if;
             end if;
+            Product_Demand := Max_Content(Product) -  Storage(Product);  
          end Take;
          
       or
